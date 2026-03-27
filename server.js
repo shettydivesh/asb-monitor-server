@@ -1,47 +1,52 @@
-from flask import Flask, request, jsonify
-import smtplib
-from email.mime.text import MIMEText
+const express = require("express");
+const nodemailer = require("nodemailer");
+const cors = require("cors");
 
-app = Flask(__name__)
+const app = express();
+app.use(express.json());
+app.use(cors());
 
-EMAIL_FROM = "asbtest@asbindia.org"
-EMAIL_PASSWORD = "Welcome2526%"   
-EMAIL_TO = "shettyd@asbindia.org"
+const transporter = nodemailer.createTransport({
+  host: "smtp.office365.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
 
-SMTP_SERVER = "smtp.office365.com"
-SMTP_PORT = 587
+const alerts = {};
 
-def send_email(subject, body):
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
+function sendEmail(subject, text) {
+  transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: "shettyd@asbindia.org",
+    subject,
+    text
+  });
+}
 
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls()
-        server.login(EMAIL_FROM, EMAIL_PASSWORD)
-        server.send_message(msg)
+app.post("/heartbeat", (req, res) => {
+  const { deviceId, battery, ip, isSchool } = req.body;
 
-@app.route("/alert", methods=["POST"])
-def alert():
-    data = request.json
-    alert_type = data.get("type")
-    details = data.get("data")
-    device = data.get("deviceId")
+  console.log(deviceId, battery?.level, ip);
 
-    if alert_type == "LOW_BATTERY":
-        send_email(
-            "⚠️ Chromebook Low Battery",
-            f"Device: {device}\nBattery: {details}"
-        )
+  if (battery?.level < 9 && !battery?.charging) {
+    if (!alerts[deviceId]?.lowBattery) {
+      sendEmail("⚠️ Low Battery", `Device ${deviceId} at ${battery.level}%`);
+      alerts[deviceId] = { ...alerts[deviceId], lowBattery: true };
+    }
+  }
 
-    elif alert_type == "LEFT_NETWORK":
-        send_email(
-            "🚨 Device Left ASB Network",
-            f"Device: {device}\nIP: {details}"
-        )
+  if (!isSchool) {
+    if (!alerts[deviceId]?.network) {
+      sendEmail("🚨 Left ASB Network", `Device ${deviceId} IP: ${ip}`);
+      alerts[deviceId] = { ...alerts[deviceId], network: true };
+    }
+  }
 
-    return jsonify({"status": "ok"})
+  res.send({ ok: true });
+});
 
-if __name__ == "__main__":
-    app.run(port=5000)
+app.listen(3000, () => console.log("Server running"));
