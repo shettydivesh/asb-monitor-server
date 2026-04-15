@@ -10,22 +10,14 @@ app.use(cors());
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
 
-if (!EMAIL_USER || !EMAIL_PASS) {
-  console.error("❌ Missing EMAIL_USER or EMAIL_PASS");
-  process.exit(1);
-}
+const EMAIL_USER = "monitor@asbindia.org";
 
-// 📧 Office365 SMTP (fixed config)
 const transporter = nodemailer.createTransport({
   host: "smtp.office365.com",
   port: 587,
   secure: false,
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS
-  },
   tls: {
-    ciphers: "SSLv3"
+    rejectUnauthorized: false
   }
 });
 
