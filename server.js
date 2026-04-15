@@ -23,16 +23,11 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-// 📡 Get Meraki client info (SAFE)
-async function getMerakiClient(ip) {
+// 📡 Get recent Meraki client (NO IP NEEDED)
+async function getRecentMerakiClient() {
   try {
     if (!MERAKI_API_KEY) {
       console.log("⚠️ Meraki key missing");
-      return null;
-    }
-
-    // Skip fake / placeholder IP
-    if (!ip || ip === "unknown" || ip.includes("x")) {
       return null;
     }
 
@@ -44,20 +39,20 @@ async function getMerakiClient(ip) {
         },
         params: {
           perPage: 1000,
-          timespan: 300 // last 5 mins (IMPORTANT)
+          timespan: 120 // last 2 mins (fast + relevant)
         }
       }
     );
 
-    const client = res.data.find(c => c.ip === ip);
+    // Filter only your SSID
+    const clients = res.data.filter(c => c.ssid === "ASB_Student");
 
-    if (!client) return null;
+    if (!clients.length) return null;
 
-    return {
-      ssid: client.ssid,
-      apName: client.recentDeviceName,
-      lastSeen: client.lastSeen
-    };
+    // Sort by most recent activity
+    clients.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+
+    return clients[0];
 
   } catch (err) {
     console.error("❌ Meraki API error:", err.response?.status || err.message);
@@ -89,22 +84,22 @@ app.post("/heartbeat", async (req, res) => {
     const {
       deviceId = "unknown",
       battery = {},
-      ip = "unknown",
       isSchool = true,
+      networkChanged = false,
       campus = "Unknown",
       ssid = "Unknown"
     } = req.body;
 
-    console.log("📡 Heartbeat:", deviceId, battery.level, isSchool, campus);
+    console.log("📡 Heartbeat:", deviceId, battery.level, isSchool, networkChanged);
 
     let merakiData = null;
 
-    // Only try Meraki if IP is usable
-    if (ip !== "unknown" && !ip.includes("x")) {
-      merakiData = await getMerakiClient(ip);
+    // Only fetch Meraki when needed (performance)
+    if (!isSchool && networkChanged) {
+      merakiData = await getRecentMerakiClient();
     }
 
-    const apName = merakiData?.apName || "Unknown";
+    const apName = merakiData?.recentDeviceName || "Unknown";
     const finalSSID = merakiData?.ssid || ssid;
     const lastSeen = merakiData?.lastSeen || "Unknown";
 
@@ -127,8 +122,8 @@ Last AP: ${apName}`
       }
     }
 
-    // 🚨 LEFT NETWORK
-    if (!isSchool) {
+    // 🚨 LEFT NETWORK (ONLY on change)
+    if (!isSchool && networkChanged) {
       if (!alerts[deviceId]?.network) {
         sendEmail(
           "🚨 Left ASB Network",
