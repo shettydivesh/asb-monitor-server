@@ -6,12 +6,10 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 🔐 ENV validation
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
-
+// ✅ Use ONLY this (no env, no password)
 const EMAIL_USER = "monitor@asbindia.org";
 
+// ✅ SMTP RELAY (no auth)
 const transporter = nodemailer.createTransport({
   host: "smtp.office365.com",
   port: 587,
@@ -24,7 +22,7 @@ const transporter = nodemailer.createTransport({
 // 🧠 Store alerts per device
 const alerts = {};
 
-// ⏱ Reset alerts every 30 mins (so you can get alerts again)
+// ⏱ Reset alerts every 30 mins
 setInterval(() => {
   console.log("🔄 Resetting alert flags");
   for (let device in alerts) {
