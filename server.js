@@ -6,8 +6,8 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 🔐 API KEY (put new one here)
-const resend = new Resend("re_BqeKwGUu_FzugKgoRGbEChGwRq368DWdj");
+// 🔐 Use API key from Render ENV (IMPORTANT)
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // 🧠 Store alerts per device
 const alerts = {};
@@ -20,11 +20,13 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-// 📧 Send email helper (RESEND)
+// 📧 Send email helper
 async function sendEmail(subject, text) {
   try {
+    console.log("📧 Sending email...");
+
     await resend.emails.send({
-      from: "ASB Monitor <onboarding@resend.dev>", // temporary sender
+      from: "ASB Monitor <onboarding@resend.dev>", // change later after domain verify
       to: ["shettyd@asbindia.org"],
       subject,
       text
