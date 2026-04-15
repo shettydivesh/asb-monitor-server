@@ -7,9 +7,8 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// 🔐 ENV
 const resend = new Resend(process.env.RESEND_API_KEY);
-
-// 🔐 Meraki config
 const MERAKI_API_KEY = process.env.MERAKI_API_KEY;
 const NETWORK_ID = "L_602356450160822442";
 
@@ -24,9 +23,19 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-// 📡 Get Meraki client info
+// 📡 Get Meraki client info (SAFE)
 async function getMerakiClient(ip) {
   try {
+    if (!MERAKI_API_KEY) {
+      console.log("⚠️ Meraki key missing");
+      return null;
+    }
+
+    // Skip fake / placeholder IP
+    if (!ip || ip === "unknown" || ip.includes("x")) {
+      return null;
+    }
+
     const res = await axios.get(
       `https://api.meraki.com/api/v1/networks/${NETWORK_ID}/clients`,
       {
@@ -34,7 +43,8 @@ async function getMerakiClient(ip) {
           "X-Cisco-Meraki-API-Key": MERAKI_API_KEY
         },
         params: {
-          perPage: 1000
+          perPage: 1000,
+          timespan: 300 // last 5 mins (IMPORTANT)
         }
       }
     );
@@ -50,7 +60,7 @@ async function getMerakiClient(ip) {
     };
 
   } catch (err) {
-    console.error("❌ Meraki API error:", err.message);
+    console.error("❌ Meraki API error:", err.response?.status || err.message);
     return null;
   }
 }
@@ -58,8 +68,10 @@ async function getMerakiClient(ip) {
 // 📧 Send email
 async function sendEmail(subject, text) {
   try {
+    console.log("📧 Sending email...");
+
     await resend.emails.send({
-      from: "ASB Monitor <onboarding@resend.dev>",
+      from: "ASB Monitor <onboarding@resend.dev>", // change after domain verify
       to: ["shettyd@asbindia.org"],
       subject,
       text
@@ -78,45 +90,57 @@ app.post("/heartbeat", async (req, res) => {
       deviceId = "unknown",
       battery = {},
       ip = "unknown",
-      isSchool = true
+      isSchool = true,
+      campus = "Unknown",
+      ssid = "Unknown"
     } = req.body;
 
-    console.log("📡 Heartbeat:", deviceId, battery.level, ip, isSchool);
+    console.log("📡 Heartbeat:", deviceId, battery.level, isSchool, campus);
 
     let merakiData = null;
 
-    if (ip !== "unknown") {
+    // Only try Meraki if IP is usable
+    if (ip !== "unknown" && !ip.includes("x")) {
       merakiData = await getMerakiClient(ip);
     }
 
-    // 🔋 Battery alert
+    const apName = merakiData?.apName || "Unknown";
+    const finalSSID = merakiData?.ssid || ssid;
+    const lastSeen = merakiData?.lastSeen || "Unknown";
+
+    // 🔋 LOW BATTERY
     if (battery.level !== undefined && battery.level < 9 && !battery.charging) {
       if (!alerts[deviceId]?.lowBattery) {
         sendEmail(
           "⚠️ Low Battery",
-          `Device: ${deviceId}
+          `Campus: ${campus}
+SSID: ${finalSSID}
+
+Device: ${deviceId}
 Battery: ${battery.level}%
 Charging: ${battery.charging}
 
-Last AP: ${merakiData?.apName || "Unknown"}
-SSID: ${merakiData?.ssid || "Unknown"}`
+Last AP: ${apName}`
         );
 
         alerts[deviceId] = { ...alerts[deviceId], lowBattery: true };
       }
     }
 
-    // 🚨 Left network alert
+    // 🚨 LEFT NETWORK
     if (!isSchool) {
       if (!alerts[deviceId]?.network) {
         sendEmail(
           "🚨 Left ASB Network",
-          `Device: ${deviceId}
-IP: ${ip}
+          `Campus: ${campus}
+Last SSID: ${finalSSID}
 
-Last AP: ${merakiData?.apName || "Unknown"}
-SSID: ${merakiData?.ssid || "Unknown"}
-Last Seen: ${merakiData?.lastSeen || "Unknown"}`
+Device: ${deviceId}
+
+Last AP: ${apName}
+Last Seen: ${lastSeen}
+
+Status: Device left school network`
         );
 
         alerts[deviceId] = { ...alerts[deviceId], network: true };
@@ -131,10 +155,11 @@ Last Seen: ${merakiData?.lastSeen || "Unknown"}`
   }
 });
 
-// 🏠 Health
+// 🏠 Health check
 app.get("/", (req, res) => {
   res.send("ASB Monitor Running 🚀");
 });
 
+// 🚀 Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server running on port", PORT));
