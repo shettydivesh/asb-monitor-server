@@ -1,23 +1,13 @@
 const express = require("express");
-const nodemailer = require("nodemailer");
 const cors = require("cors");
+const { Resend } = require("resend");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ✅ Use ONLY this (no env, no password)
-const EMAIL_USER = "monitor@asbindia.org";
-
-// ✅ SMTP RELAY (no auth)
-const transporter = nodemailer.createTransport({
-  host: "smtp.office365.com",
-  port: 587,
-  secure: false,
-  tls: {
-    rejectUnauthorized: false
-  }
-});
+// 🔐 API KEY (put new one here)
+const resend = new Resend("re_BqeKwGUu_FzugKgoRGbEChGwRq368DWdj");
 
 // 🧠 Store alerts per device
 const alerts = {};
@@ -30,20 +20,20 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-// 📧 Send email helper
-function sendEmail(subject, text) {
-  transporter.sendMail({
-    from: EMAIL_USER,
-    to: "shettyd@asbindia.org",
-    subject,
-    text
-  }, (err, info) => {
-    if (err) {
-      console.error("❌ Email error:", err);
-    } else {
-      console.log("✅ Email sent:", info.response);
-    }
-  });
+// 📧 Send email helper (RESEND)
+async function sendEmail(subject, text) {
+  try {
+    await resend.emails.send({
+      from: "ASB Monitor <onboarding@resend.dev>", // temporary sender
+      to: ["shettyd@asbindia.org"],
+      subject,
+      text
+    });
+
+    console.log("✅ Email sent via Resend");
+  } catch (err) {
+    console.error("❌ Email error:", err);
+  }
 }
 
 // 🏠 Health check
