@@ -101,10 +101,9 @@ app.post("/heartbeat", async (req, res) => {
 
     let merakiData = null;
 
-    // Only fetch Meraki when needed (performance)
-    if (!isSchool && networkChanged) {
-      merakiData = await getRecentMerakiClient();
-    }
+   if (!isSchool && networkChanged) {
+  merakiData = await getBestMerakiMatch(req.body.timestamp);
+}
 
     const apName = merakiData?.recentDeviceName || "Unknown";
     const finalSSID = merakiData?.ssid || ssid;
