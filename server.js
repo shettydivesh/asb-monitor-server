@@ -5,7 +5,9 @@ const axios = require("axios");
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: ["chrome-extension://*", "https://asb-monitor-server.onrender.com"]
+}));
 
 // 🔐 ENV
 const resend = new Resend(process.env.RESEND_API_KEY);
