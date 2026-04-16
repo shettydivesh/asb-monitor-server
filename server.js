@@ -23,14 +23,8 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-// 📡 Get recent Meraki client (NO IP NEEDED)
-async function getRecentMerakiClient() {
+async function getBestMerakiMatch(eventTime) {
   try {
-    if (!MERAKI_API_KEY) {
-      console.log("⚠️ Meraki key missing");
-      return null;
-    }
-
     const res = await axios.get(
       `https://api.meraki.com/api/v1/networks/${NETWORK_ID}/clients`,
       {
@@ -39,26 +33,39 @@ async function getRecentMerakiClient() {
         },
         params: {
           perPage: 1000,
-          timespan: 120 // last 2 mins (fast + relevant)
+          timespan: 180
         }
       }
     );
 
-    // Filter only your SSID
     const clients = res.data.filter(c => c.ssid === "ASB_Student");
 
     if (!clients.length) return null;
 
-    // Sort by most recent activity
-    clients.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+    const eventTs = new Date(eventTime).getTime();
 
-    return clients[0];
+    let best = null;
+    let minDiff = Infinity;
+
+    for (const c of clients) {
+      const seen = new Date(c.lastSeen).getTime();
+      const diff = Math.abs(eventTs - seen);
+
+      if (diff < minDiff) {
+        minDiff = diff;
+        best = c;
+      }
+    }
+
+    return best;
 
   } catch (err) {
-    console.error("❌ Meraki API error:", err.response?.status || err.message);
+    console.error("❌ Meraki error:", err.message);
     return null;
   }
 }
+
+
 
 // 📧 Send email
 async function sendEmail(subject, text) {
