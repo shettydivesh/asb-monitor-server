@@ -103,7 +103,7 @@ app.post("/heartbeat", async (req, res) => {
 
     let merakiData = null;
 
-   if (!isSchool && networkChanged) {
+  if (!isSchool && networkChanged && MERAKI_API_KEY) {
   merakiData = await getBestMerakiMatch(req.body.timestamp);
 }
 
