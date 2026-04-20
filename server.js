@@ -15,6 +15,7 @@ const NETWORK_ID = "L_602356450160822442";
 
 // 🔐 Google Admin setup
 const SERVICE_ACCOUNT = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+SERVICE_ACCOUNT.private_key = SERVICE_ACCOUNT.private_key.replace(/\\n/g, '\n');
 
 const auth = new google.auth.JWT(
   SERVICE_ACCOUNT.client_email,
