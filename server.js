@@ -44,13 +44,15 @@ async function syncDevices() {
     const map = {};
 
     for (const d of devices) {
-      if (!d.annotatedUser) continue;
+  const user = d.recentUsers?.[0]?.email;
 
-      map[d.annotatedUser] = {
-        serial: d.serialNumber,
-        mac: d.macAddress
-      };
-    }
+  if (!user) continue;
+
+  map[user] = {
+    serial: d.serialNumber,
+    mac: d.macAddress
+  };
+}
 
     deviceMap = map;
 
@@ -83,7 +85,9 @@ async function getMerakiClient(mac) {
       }
     );
 
-    return res.data.find(c => c.mac === mac);
+    return res.data.find(
+  c => c.mac?.toLowerCase() === mac?.toLowerCase()
+);
 
   } catch (err) {
     console.error("❌ Meraki error:", err.message);
