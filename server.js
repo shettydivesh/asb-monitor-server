@@ -13,7 +13,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const MERAKI_API_KEY = process.env.MERAKI_API_KEY;
 const NETWORK_ID = "L_602356450160822442";
 
-// 🔐 Google Auth
+// 🔐 Google Admin setup
 const SERVICE_ACCOUNT = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
 const auth = new google.auth.JWT(
@@ -21,22 +21,22 @@ const auth = new google.auth.JWT(
   null,
   SERVICE_ACCOUNT.private_key,
   ["https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly"],
-  process.env.ADMIN_EMAIL // impersonation
+  process.env.ADMIN_EMAIL
 );
 
 const directory = google.admin({ version: "directory_v1", auth });
 
-// 🧠 Cache mapping
-let deviceMap = {}; // email → { mac, serial }
+// 🧠 Device cache (email → device info)
+let deviceMap = {};
 
-// 🔄 Refresh Chromebook mapping every 5 mins
+// 🔄 Sync Chromebooks
 async function syncDevices() {
   try {
-    console.log("🔄 Syncing Chromebook devices...");
+    console.log("🔄 Syncing devices...");
 
     const res = await directory.chromeosdevices.list({
       customerId: "my_customer",
-      maxResults: 300
+      maxResults: 500
     });
 
     const devices = res.data.chromeosdevices || [];
@@ -44,12 +44,12 @@ async function syncDevices() {
     const map = {};
 
     for (const d of devices) {
-      if (d.annotatedUser && d.macAddress) {
-        map[d.annotatedUser] = {
-          mac: d.macAddress,
-          serial: d.serialNumber
-        };
-      }
+      if (!d.annotatedUser) continue;
+
+      map[d.annotatedUser] = {
+        serial: d.serialNumber,
+        mac: d.macAddress
+      };
     }
 
     deviceMap = map;
@@ -61,12 +61,12 @@ async function syncDevices() {
   }
 }
 
-// Run immediately + every 5 min
+// Run sync
 syncDevices();
 setInterval(syncDevices, 5 * 60 * 1000);
 
-// 📡 Get Meraki by MAC
-async function getMerakiByMAC(mac) {
+// 📡 Get Meraki client by MAC
+async function getMerakiClient(mac) {
   try {
     if (!mac) return null;
 
@@ -91,7 +91,7 @@ async function getMerakiByMAC(mac) {
   }
 }
 
-// 📧 Send email
+// 📧 Email
 async function sendEmail(subject, text) {
   try {
     await resend.emails.send({
@@ -110,44 +110,47 @@ async function sendEmail(subject, text) {
 // 🧠 Alert memory
 const alerts = {};
 
-// ❤️ Endpoint
+// ❤️ Heartbeat
 app.post("/heartbeat", async (req, res) => {
   try {
     const {
-      deviceId = "unknown",
+      deviceId,
       battery = {},
-      isSchool = true,
-      networkChanged = false,
-      campus = "Unknown",
-      ssid = "Unknown"
+      isSchool,
+      networkChanged,
+      campus
     } = req.body;
 
-    console.log("📡 Heartbeat:", deviceId, isSchool, networkChanged);
+    console.log("📡", deviceId, isSchool, networkChanged);
 
-    // 🔥 GET REAL DEVICE DATA
+    // 🔥 Get device info from Google
     const deviceInfo = deviceMap[deviceId];
 
+    const serial = deviceInfo?.serial || "Unknown";
     const mac = deviceInfo?.mac;
-    const serial = deviceInfo?.serial;
 
     let meraki = null;
 
     if (!isSchool && networkChanged && mac) {
-      meraki = await getMerakiByMAC(mac);
+      meraki = await getMerakiClient(mac);
     }
 
     const apName = meraki?.recentDeviceName || "Unknown";
     const lastSeen = meraki?.lastSeen || "Unknown";
 
-    // 🚨 LEFT NETWORK ALERT
+    const now = Date.now();
+
+    // 🚨 LEFT NETWORK ALERT (cooldown 30 mins)
     if (!isSchool && networkChanged) {
-      if (!alerts[deviceId]?.network) {
+      const lastSent = alerts[deviceId]?.networkTime || 0;
+
+      if (now - lastSent > 30 * 60 * 1000) {
         await sendEmail(
           "🚨 Left ASB Network",
           `Campus: ${campus}
 
 User: ${deviceId}
-Device Serial: ${serial || "Unknown"}
+Device Serial: ${serial}
 
 Last AP: ${apName}
 Last Seen: ${lastSeen}
@@ -155,17 +158,20 @@ Last Seen: ${lastSeen}
 Status: Device left school network`
         );
 
-        alerts[deviceId] = { ...alerts[deviceId], network: true };
+        alerts[deviceId] = {
+          ...alerts[deviceId],
+          networkTime: now
+        };
       }
     }
 
     // 🔋 LOW BATTERY
-    if (battery.level !== undefined && battery.level < 9 && !battery.charging) {
+    if (battery?.level !== undefined && battery.level <= 5) {
       if (!alerts[deviceId]?.lowBattery) {
         await sendEmail(
           "⚠️ Low Battery",
           `User: ${deviceId}
-Device Serial: ${serial || "Unknown"}
+Device Serial: ${serial}
 
 Battery: ${battery.level}%
 Charging: ${battery.charging}
@@ -173,7 +179,10 @@ Charging: ${battery.charging}
 Last AP: ${apName}`
         );
 
-        alerts[deviceId] = { ...alerts[deviceId], lowBattery: true };
+        alerts[deviceId] = {
+          ...alerts[deviceId],
+          lowBattery: true
+        };
       }
     }
 
