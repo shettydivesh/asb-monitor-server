@@ -13,11 +13,11 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const MERAKI_API_KEY = process.env.MERAKI_API_KEY;
 const NETWORK_ID = "L_602356450160822442";
 
-// 🔐 Google Admin setup
 const SERVICE_ACCOUNT = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
-// 🔥 FIX newline issue (IMPORTANT)
-SERVICE_ACCOUNT.private_key = SERVICE_ACCOUNT.private_key.replace(/\\n/g, "\n");
+if (SERVICE_ACCOUNT.private_key.includes("\\n")) {
+  SERVICE_ACCOUNT.private_key = SERVICE_ACCOUNT.private_key.replace(/\\n/g, "\n");
+}
 
 const auth = new google.auth.JWT(
   SERVICE_ACCOUNT.client_email,
