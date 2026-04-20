@@ -15,7 +15,9 @@ const NETWORK_ID = "L_602356450160822442";
 
 // 🔐 Google Admin setup
 const SERVICE_ACCOUNT = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-SERVICE_ACCOUNT.private_key = SERVICE_ACCOUNT.private_key.replace(/\\n/g, '\n');
+
+// 🔥 FIX newline issue (IMPORTANT)
+SERVICE_ACCOUNT.private_key = SERVICE_ACCOUNT.private_key.replace(/\\n/g, "\n");
 
 const auth = new google.auth.JWT(
   SERVICE_ACCOUNT.client_email,
@@ -30,34 +32,49 @@ const directory = google.admin({ version: "directory_v1", auth });
 // 🧠 Device cache (email → device info)
 let deviceMap = {};
 
-// 🔄 Sync Chromebooks
+// 🧠 Cache last AP before disconnect
+let lastSeenMap = {};
+
+// 🔄 Sync Chromebooks (with pagination)
 async function syncDevices() {
   try {
     console.log("🔄 Syncing devices...");
 
-    const res = await directory.chromeosdevices.list({
-      customerId: "my_customer",
-      maxResults: 500
-    });
-
-    const devices = res.data.chromeosdevices || [];
-
+    let pageToken;
     const map = {};
+    let total = 0;
 
-    for (const d of devices) {
-  const user = d.recentUsers?.[0]?.email;
+    do {
+      const res = await directory.chromeosdevices.list({
+        customerId: "my_customer",
+        maxResults: 500,
+        pageToken
+      });
 
-  if (!user) continue;
+      const devices = res.data.chromeosdevices || [];
+      total += devices.length;
 
-  map[user] = {
-    serial: d.serialNumber,
-    mac: d.macAddress
-  };
-}
+      for (const d of devices) {
+        const user =
+          d.recentUsers?.[0]?.email ||
+          d.annotatedUser ||
+          null;
+
+        if (!user) continue;
+
+        map[user] = {
+          serial: d.serialNumber,
+          mac: d.macAddress
+        };
+      }
+
+      pageToken = res.data.nextPageToken;
+
+    } while (pageToken);
 
     deviceMap = map;
 
-    console.log(`✅ Synced ${devices.length} devices`);
+    console.log(`✅ Synced ${total} devices`);
 
   } catch (err) {
     console.error("❌ Google API error:", err.message);
@@ -81,14 +98,14 @@ async function getMerakiClient(mac) {
         },
         params: {
           perPage: 1000,
-          timespan: 300
+          timespan: 900 // 15 mins
         }
       }
     );
 
     return res.data.find(
-  c => c.mac?.toLowerCase() === mac?.toLowerCase()
-);
+      c => c.mac?.toLowerCase() === mac?.toLowerCase()
+    );
 
   } catch (err) {
     console.error("❌ Meraki error:", err.message);
@@ -128,7 +145,6 @@ app.post("/heartbeat", async (req, res) => {
 
     console.log("📡", deviceId, isSchool, networkChanged);
 
-    // 🔥 Get device info from Google
     const deviceInfo = deviceMap[deviceId];
 
     const serial = deviceInfo?.serial || "Unknown";
@@ -136,8 +152,18 @@ app.post("/heartbeat", async (req, res) => {
 
     let meraki = null;
 
-    if (!isSchool && networkChanged && mac) {
-      meraki = await getMerakiClient(mac);
+    // 🔥 ALWAYS capture last AP while inside school
+    if (isSchool && mac) {
+      const current = await getMerakiClient(mac);
+
+      if (current) {
+        lastSeenMap[deviceId] = current;
+      }
+    }
+
+    // 🔥 On disconnect → use cached AP
+    if (!isSchool && networkChanged) {
+      meraki = lastSeenMap[deviceId] || null;
     }
 
     const apName = meraki?.recentDeviceName || "Unknown";
